@@ -26,6 +26,8 @@ export default function Home() {
     includeSchema: true,
     includeMeta: true,
     generateCode: false,
+    includeIntent: true,
+    includeMisconceptions: true,
     length: 'medium',
     style: 'professional',
   });
@@ -79,7 +81,7 @@ export default function Home() {
     <div className="min-h-screen bg-[#FBFCFE] bg-[radial-gradient(at_top_center,_#e0e7ff_0%,_transparent_50%)] p-4 md:p-8 font-sans text-slate-800">
       <div className="max-w-6xl mx-auto space-y-10">
         
-        {/* 頂部置中 Logo 與標題區 - 橫向排列以減少上下空間 */}
+        {/* 頂部置中 Logo 與標題區 */}
         <header className="flex flex-col items-center text-center space-y-5 pt-4">
           <a 
             href="https://ai-zeta-dusky-55.vercel.app/" 
@@ -190,6 +192,16 @@ export default function Home() {
                 </label>
 
                 <label className="flex items-center gap-3 p-3 rounded-xl cursor-pointer hover:bg-blue-50/50 transition-all">
+                  <input type="checkbox" checked={options.includeMisconceptions} onChange={(e) => setOptions({...options, includeMisconceptions: e.target.checked})} className="w-4 h-4 rounded border-slate-200 text-blue-600 focus:ring-0" />
+                  <span className="text-sm text-slate-600">常見誤區解析 (反向查證)</span>
+                </label>
+
+                <label className="flex items-center gap-3 p-3 rounded-xl cursor-pointer hover:bg-blue-50/50 transition-all">
+                  <input type="checkbox" checked={options.includeIntent} onChange={(e) => setOptions({...options, includeIntent: e.target.checked})} className="w-4 h-4 rounded border-slate-200 text-blue-600 focus:ring-0" />
+                  <span className="text-sm text-slate-600">佈局搜尋意圖 (潛在問題小標)</span>
+                </label>
+
+                <label className="flex items-center gap-3 p-3 rounded-xl cursor-pointer hover:bg-blue-50/50 transition-all">
                   <input type="checkbox" checked={options.includeMeta} onChange={(e) => setOptions({...options, includeMeta: e.target.checked})} className="w-4 h-4 rounded border-slate-200 text-blue-600" />
                   <span className="text-sm text-slate-600">SEO 描述 (Meta Description)</span>
                 </label>
@@ -275,7 +287,12 @@ export default function Home() {
                 <div className="p-2 bg-blue-50 rounded-xl">
                   <FileText className="w-5 h-5 text-blue-600" />
                 </div>
-                <h2 className="text-xl font-bold tracking-tight text-slate-800">文章大綱、需求指令與參考案例</h2>
+                <h2 className="text-xl font-bold tracking-tight text-slate-800">
+                  文章大綱、需求指令與參考案例
+                  <span className="block text-sm font-normal text-blue-500 mt-1">
+                    {options.category === 'professional' ? '(請提供兩個獨特的見解)' : '(請提供在地人才知道的秘辛或是分享小秘訣)'}
+                  </span>
+                </h2>
               </div>
 
               <textarea 

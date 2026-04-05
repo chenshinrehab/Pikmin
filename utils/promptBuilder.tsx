@@ -7,6 +7,8 @@ export interface PromptOptions {
   includeSchema: boolean;
   includeMeta: boolean;
   generateCode: boolean;     
+  includeIntent: boolean;           // 新增：潛在問題意圖
+  includeMisconceptions: boolean;   // 新增：誤區解析
   length: 'short' | 'medium' | 'long';
   style: 'professional' | 'warm' | 'structured' | 'engaging' | 'humorous';
   authorName?: string;
@@ -15,7 +17,7 @@ export interface PromptOptions {
 }
 
 export function buildArticlePrompt(outline: string, options: PromptOptions): string {
-  const { category, includeFaq, includeCitations, includeSchema, includeMeta, generateCode, length, style, authorName, authorUrl, referenceText } = options;
+  const { category, includeFaq, includeCitations, includeSchema, includeMeta, generateCode, includeIntent, includeMisconceptions, length, style, authorName, authorUrl, referenceText } = options;
 
   let prompt = `你是一位資深的內容創作專家與 前端/SEO 工程師。請根據以下要求，為我撰寫一篇高品質的文章與對應的程式碼：\n\n`;
 
@@ -26,9 +28,9 @@ export function buildArticlePrompt(outline: string, options: PromptOptions): str
   prompt += `- **語言地區**：使用「繁體中文（台灣）」。\n`;
 
   if (category === 'professional') {
-    prompt += `- **文章領域**：【專業知識類】。請確保內容嚴謹，高度強化 E-E-A-T（經驗、專業、權威、信任）指標。\n`;
+    prompt += `- **文章領域**：【專業知識類】。請確保內容嚴謹，高度強化 E-E-A-T（經驗、專業、權威、信任）指標。請在文中加入至少兩個獨特的見解或臨床觀察到的細微差異，提供具有「資訊增量」的內容。\n`;
   } else {
-    prompt += `- **文章領域**：【生活風格類】。請著重於臨場感、實用體驗以及引人入勝的敘事風格。\n`;
+    prompt += `- **文章領域**：【生活風格類】。請著重於臨場感、實用體驗以及引人入勝的敘事風格。請在文中加入在地人才知道的秘辛或是分享小秘訣，提供具有「資訊增量」的內容。\n`;
   }
 
   const styleMap: Record<string, string> = {
@@ -46,7 +48,13 @@ export function buildArticlePrompt(outline: string, options: PromptOptions): str
     long: '2000 字以上（深度全解析）。'
   };
   prompt += `- **文章長度與深度**：${lengthMap[length]}`;
-  if (length === 'long') {
+  if (length === 'short') {
+    prompt += ` 因為要求精簡長度，請以重點介紹為主。`;
+    if (category === 'professional') {
+      prompt += `特別注意：即使字數較少，專業知識類也「必須」包含治療方式的介紹。`;
+    }
+    prompt += `\n`;
+  } else if (length === 'long') {
     prompt += ` 因為要求長篇幅，請務必涵蓋深入的子話題、背景解析或進階細節探討，確保內容豐富且具備高度價值。\n`;
   } else {
     prompt += `\n`;
@@ -66,10 +74,26 @@ export function buildArticlePrompt(outline: string, options: PromptOptions): str
   prompt += `\n### 3. 排版與必要包含元素：\n`;
   
   prompt += `- **內文嚴禁 HTML 標籤**：文章正文請完全使用純 Markdown 語法，絕對不可以在文章正文中使用原始 HTML 標籤。\n`;
-  prompt += `- **強制比較表格**：文章中必須至少包含一個「比較表格 (使用 Markdown 表格)」。若為專業知識類，請比較疾病的治療選項差異；若為生活風格類，請比較景點特色、交通方式或美食評比等。\n`;
+  prompt += `- **強制比較表格**：無論字數長短，文章中都必須至少包含一個「比較表格 (使用 Markdown 表格)」。若為專業知識類，請比較疾病的治療選項差異；若為生活風格類，請比較景點特色、交通方式或美食評比等。\n`;
+
+  if (includeIntent) {
+    prompt += `- **搜尋意圖的語意佈局**：請分析搜尋此主題的使用者通常處於哪種階段（意識、考慮、決定），並在內文中自然埋入該階段最在意的潛在關鍵問句作為小標題（H3）。\n`;
+  }
+
+  if (includeMisconceptions) {
+    if (length === 'short') {
+      prompt += `- **常見誤區解析 (反向查證)**：針對主題找出網路上 1 到 2 個最常見的錯誤觀念，並給予精簡的科學證據或真實經驗的糾正。\n`;
+    } else {
+      prompt += `- **常見誤區解析 (反向查證)**：請增加一個區塊：『常見三大誤區解析』。針對主題找出網路上最常見的錯誤觀念，並給予科學證據或真實經驗的糾正。\n`;
+    }
+  }
 
   if (includeFaq) {
-    prompt += `- **FAQ 常見問題**：在文章末尾加入 3-5 個讀者最常關心的問題與解答（使用 H3 標籤）。\n`;
+    if (length === 'short') {
+      prompt += `- **FAQ 常見問題**：在文章末尾加入 1-2 個讀者最常關心的問題與精簡的解答（使用 H3 標籤）。\n`;
+    } else {
+      prompt += `- **FAQ 常見問題**：在文章末尾加入 3-5 個讀者最常關心的問題與解答（使用 H3 標籤）。\n`;
+    }
   }
 
   prompt += `- **結語與呼籲行動 (CTA)**：文章最後請加上「結語」段落，並提供明確的呼籲行動（Call to Action）。\n`;
@@ -87,7 +111,7 @@ export function buildArticlePrompt(outline: string, options: PromptOptions): str
   }
 
   if (includeSchema) {
-    prompt += `- **JSON-LD 結構化資料**：提供符合 schema.org 格式的 JSON-LD。除了基礎的 Article 或 Review Schema 之外，也必須要有 FAQ Schema。請將完整的 JSON-LD 程式碼獨立用 \`\`\`json ... \`\`\` 區塊包裹，並放置在 Markdown 文章內文的後面，產出完整網頁程式碼的前面。\n`;
+    prompt += `- **JSON-LD 結構化資料**：提供符合 schema.org 格式的 JSON-LD。除了基礎的 Article 或 Review Schema 之外，也必須要有 FAQ Schema。在 JSON-LD 中，請明確標註 mainEntityOfPage，並在 about 欄位中連結至 Wikipedia 或官方權威定義的實體 URL。請將完整的 JSON-LD 程式碼獨立用 \`\`\`json ... \`\`\` 區塊包裹，並放置在 Markdown 文章內文的後面，產出完整網頁程式碼的前面。\n`;
   }
 
   if (generateCode) {
