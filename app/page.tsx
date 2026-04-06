@@ -89,6 +89,7 @@ export default function PikminTimer() {
       registration.showNotification('🍄 準備打蘑菇囉！', {
         body: `${timer.location ? `地點：${timer.location}\n` : ''}新蘑菇即將生成，點擊開啟遊戲！`,
         icon: '/icon.png',
+        // @ts-ignore: vibrate property might not be in the default TS NotificationOptions
         vibrate: [500, 200, 500, 200, 500],
         tag: timer.id,
         requireInteraction: true 
@@ -146,13 +147,11 @@ export default function PikminTimer() {
     <main className={`min-h-screen p-4 md:p-8 transition-colors duration-500 ${isAlarming ? 'bg-red-50' : 'bg-stone-50'}`}>
       <div className="max-w-md mx-auto">
         <header className="text-center mb-8 pt-4 flex flex-col items-center">
-          {/* 一個簡單的可愛蘑菇圖示替代品，你可以換成圖片 */}
           <div className="text-6xl mb-2">🍄</div>
           <h1 className="text-3xl font-extrabold text-stone-900 tracking-tight">蘑菇計時器</h1>
           <p className="text-green-700 bg-green-100 px-3 py-1 rounded-full text-xs font-bold mt-2">爆掉倒數 + 4分30秒提醒</p>
         </header>
 
-        {/* 鬧鈴狀態控制區 */}
         {isAlarming && (
           <div className="mb-8 animate-pulse">
             <button 
@@ -164,7 +163,6 @@ export default function PikminTimer() {
           </div>
         )}
 
-        {/* 輸入表單 */}
         <form onSubmit={handleAddTimer} className="bg-white p-6 rounded-3xl border border-stone-100 shadow-xl shadow-stone-500/5 mb-8 space-y-4">
           <h2 className="text-lg font-bold text-stone-800 mb-4 flex items-center gap-2">
             <span className="text-green-600">✚</span> 新增蘑菇任務
@@ -190,7 +188,6 @@ export default function PikminTimer() {
           </button>
         </form>
 
-        {/* 計時器列表 */}
         <div className="space-y-4">
           <h3 className="text-sm font-bold text-stone-400 tracking-wider ml-2">正在計時的蘑菇</h3>
           {timers.length === 0 && (
