@@ -1,17 +1,15 @@
-@import "tailwindcss";
+/* 1. 改用標準的 Tailwind 指令，這在 Webpack 模式下相容性最強 */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
+/* 2. 定義全局變數 */
 :root {
   --background: #ffffff;
   --foreground: #171717;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
+/* 3. 深色模式設定 */
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
@@ -19,8 +17,15 @@
   }
 }
 
+/* 4. 基礎樣式設定 */
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  /* 這裡改用 Next.js 導入的 Geist 字體變數，維持設計一致性 */
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+/* 5. 如果需要自定義主題顏色，請在 layer components 中定義 */
+@layer components {
+  /* 你原本 @theme inline 內的邏輯建議放在這裡或透過 tailwind.config.js 設定 */
 }
