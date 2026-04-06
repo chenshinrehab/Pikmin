@@ -1,239 +1,236 @@
-"use client";
+'use client'
 
-import React, { useState } from 'react';
-import { 
-  Clipboard, 
-  RefreshCcw, 
-  Stethoscope, 
-  Palmtree, 
-  Code, 
-  Sparkles, 
-  Flame, 
-  TreeDeciduous, 
-  Check,
-  Layout,
-  Edit3,
-  Smile,
-  MessageCircle
-} from 'lucide-react';
-import { buildFbPostPrompt, FbPromptOptions } from '@/utils/fbPromptBuilder';
+import { useState, useEffect, useRef } from 'react'
 
-export default function PromptGeneratorPage() {
-  const [options, setOptions] = useState<FbPromptOptions>({
-    fanpage: 'rehabDoctor',
-    topicSource: 'trending',
-    customTopic: '',
-    length: 'medium',
-    style: 'warm',
-    emojiDensity: 'low', 
-    includeHashtags: true,
-    callToAction: 'shareExperience' 
-  });
+type Timer = {
+  id: string;
+  location: string;
+  targetTime: number; // Unix Timestamp (ms)
+  isTriggered: boolean;
+}
 
-  const [generatedPrompt, setGeneratedPrompt] = useState<string>('');
-  const [copied, setCopied] = useState(false);
+export default function PikminTimer() {
+  const [timers, setTimers] = useState<Timer[]>([])
+  const [minutes, setMinutes] = useState('')
+  const [location, setLocation] = useState('')
+  const [currentTime, setCurrentTime] = useState(Date.now())
+  const [isAlarming, setIsAlarming] = useState(false)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
 
-  // 修改：生成後自動複製
-  const handleGenerateAndCopy = async () => {
-    const prompt = buildFbPostPrompt(options);
-    setGeneratedPrompt(prompt);
+  // 1. 初始化：註冊 SW、請求權限、載入快取、建立音效實例
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(err => console.error('SW register failed:', err));
+    }
+
+    const saved = localStorage.getItem('pikmin-timers')
+    if (saved) {
+      try {
+        setTimers(JSON.parse(saved))
+      } catch (e) {
+        console.error("Failed to parse saved timers", e)
+      }
+    }
+
+    if ('Notification' in window && Notification.permission !== 'granted') {
+      Notification.requestPermission()
+    }
+
+    const audio = new Audio('/alert.mp3')
+    audio.loop = true
+    audioRef.current = audio
+
+    return () => {
+      audio.pause()
+      audioRef.current = null
+    }
+  }, [])
+
+  // 2. 持久化儲存計時器
+  useEffect(() => {
+    localStorage.setItem('pikmin-timers', JSON.stringify(timers))
+  }, [timers])
+
+  // 3. 核心時鐘：每秒檢查時間與更新介面
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now()
+      setCurrentTime(now)
+
+      setTimers(prevTimers => {
+        let hasChanges = false
+        const updated = prevTimers.map(timer => {
+          if (!timer.isTriggered && now >= timer.targetTime) {
+            hasChanges = true
+            triggerAlarm(timer)
+            return { ...timer, isTriggered: true }
+          }
+          return timer
+        })
+        return hasChanges ? updated : prevTimers
+      })
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [])
+
+  // 4. 觸發鬧鈴邏輯 (音樂 + 震動 + 通知)
+  const triggerAlarm = async (timer: Timer) => {
+    setIsAlarming(true)
     
-    // 自動複製邏輯
-    try {
-      await navigator.clipboard.writeText(prompt);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('自動複製失敗', err);
+    if (audioRef.current) {
+      audioRef.current.play().catch(e => {
+        console.warn("自動播放被瀏覽器阻擋", e)
+      })
     }
-  };
 
-  const handleManualCopy = async () => {
-    if (!generatedPrompt) return;
-    try {
-      await navigator.clipboard.writeText(generatedPrompt);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      alert('複製失敗');
+    if ('serviceWorker' in navigator) {
+      const registration = await navigator.serviceWorker.ready
+      registration.showNotification('🍄 準備打蘑菇囉！', {
+        body: `${timer.location ? `地點：${timer.location}\n` : ''}新蘑菇即將生成，點擊開啟遊戲！`,
+        icon: '/icon.png',
+        vibrate: [500, 200, 500, 200, 500],
+        tag: timer.id,
+        requireInteraction: true 
+      })
     }
-  };
+  }
+
+  // 5. 停止鬧鈴
+  const stopAlarm = () => {
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current.currentTime = 0
+    }
+    setIsAlarming(false)
+  }
+
+  // 6. 新增計時器邏輯
+  const handleAddTimer = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!minutes || isNaN(Number(minutes))) return
+
+    const extraTimeMs = 4.5 * 60 * 1000
+    const targetTime = Date.now() + (Number(minutes) * 60 * 1000) + extraTimeMs
+
+    const newTimer: Timer = {
+      id: crypto.randomUUID(),
+      location: location || '某處的蘑菇',
+      targetTime,
+      isTriggered: false
+    }
+
+    setTimers(prev => [...prev, newTimer].sort((a, b) => a.targetTime - b.targetTime))
+    setMinutes('')
+    setLocation('')
+    
+    // 解鎖音效權限
+    if (audioRef.current) {
+      const promise = audioRef.current.play();
+      promise.then(() => audioRef.current?.pause()).catch(() => {});
+    }
+  }
+
+  // 格式化倒數計時字串
+  const formatCountdown = (target: number) => {
+    const diff = target - currentTime
+    if (diff <= 0) return "TIME UP!"
+    
+    const totalSeconds = Math.floor(diff / 1000)
+    const m = Math.floor(totalSeconds / 60)
+    const s = totalSeconds % 60
+    return `${m}:${s.toString().padStart(2, '0')}`
+  }
 
   return (
-    <div className="min-h-screen bg-slate-50 py-10 px-4 font-sans text-slate-800">
-      <div className="max-w-6xl mx-auto">
-        
-        <header className="text-center mb-12">
-          <div className="inline-flex items-center justify-center p-3 bg-blue-100 rounded-2xl mb-4 text-blue-600">
-            <Sparkles size={32} />
-          </div>
-          <h1 className="text-4xl font-black tracking-tight mb-3">jimmy的社群編輯器</h1>
-          <p className="text-slate-500 font-medium italic text-lg uppercase tracking-tight">One-Click Generate & Auto Copy</p>
+    <main className={`min-h-screen p-4 md:p-8 transition-colors duration-500 ${isAlarming ? 'bg-red-50' : 'bg-stone-50'}`}>
+      <div className="max-w-md mx-auto">
+        <header className="text-center mb-8 pt-4 flex flex-col items-center">
+          {/* 一個簡單的可愛蘑菇圖示替代品，你可以換成圖片 */}
+          <div className="text-6xl mb-2">🍄</div>
+          <h1 className="text-3xl font-extrabold text-stone-900 tracking-tight">蘑菇計時器</h1>
+          <p className="text-green-700 bg-green-100 px-3 py-1 rounded-full text-xs font-bold mt-2">爆掉倒數 + 4分30秒提醒</p>
         </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          
-          <div className="lg:col-span-5 bg-white rounded-[2.5rem] shadow-2xl border border-slate-100 overflow-hidden">
-            <div className="p-8 space-y-10">
-              
-              {/* 1. 選擇發文身分 - 加大文字並優化漸層 */}
-              <div>
-                <label className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 block">1. 選擇發文身分</label>
-                <div className="flex gap-4">
-                  {[
-                    { id: 'rehabDoctor', icon: Stethoscope, label: '復健醫師', color: 'from-blue-500 to-cyan-400' },
-                    { id: 'europeTravel', icon: Palmtree, label: '歐洲旅遊', color: 'from-emerald-500 to-teal-400' },
-                    { id: 'seoTech', icon: Code, label: 'SEO技術', color: 'from-indigo-600 to-purple-500' }
-                  ].map(item => (
-                    <button 
-                      key={item.id}
-                      onClick={() => setOptions({...options, fanpage: item.id as any})}
-                      className={`flex-1 p-5 rounded-3xl border-2 transition-all flex flex-col items-center gap-3 ${
-                        options.fanpage === item.id 
-                        ? `border-transparent bg-gradient-to-br ${item.color} text-white scale-105 shadow-lg` 
-                        : 'border-slate-100 text-slate-300 hover:border-slate-200 bg-white'
-                      }`}
-                    >
-                      <item.icon size={32} />
-                      <span className="text-sm font-black text-center leading-tight">{item.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* 2. 話題抓取策略 - 加大文字並優化漸層 */}
-              <div>
-                <label className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 block">2. 話題抓取策略</label>
-                <div className="grid grid-cols-3 gap-4 mb-4">
-                  {[
-                    { id: 'trending', icon: Flame, label: '熱門時事', color: 'from-orange-500 to-red-400' },
-                    { id: 'evergreen', icon: TreeDeciduous, label: '長青議題', color: 'from-green-500 to-lime-400' },
-                    { id: 'custom', icon: Edit3, label: '自訂討論', color: 'from-blue-600 to-indigo-400' }
-                  ].map(item => (
-                    <button 
-                      key={item.id}
-                      onClick={() => setOptions({...options, topicSource: item.id as any})}
-                      className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all ${
-                        options.topicSource === item.id 
-                        ? `border-transparent bg-gradient-to-br ${item.color} text-white shadow-md scale-105` 
-                        : 'border-slate-50 text-slate-300 bg-slate-50'
-                      }`}
-                    >
-                      <item.icon size={24} /> 
-                      <span className="text-xs font-black tracking-tight">{item.label}</span>
-                    </button>
-                  ))}
-                </div>
-                {options.topicSource === 'custom' && (
-                  <textarea 
-                    placeholder="輸入自訂主題 (如：新進超音波設備、私密景點、技術技巧...)"
-                    className="w-full bg-slate-50 border-2 border-blue-100 rounded-2xl p-4 text-sm focus:outline-none focus:border-blue-400 min-h-[100px] animate-in fade-in zoom-in-95"
-                    value={options.customTopic}
-                    onChange={(e) => setOptions({...options, customTopic: e.target.value})}
-                  />
-                )}
-              </div>
-
-              {/* 3. 其他參數 */}
-              <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-3">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1"><Smile size={14}/> Emoji 密度</label>
-                  <select className="w-full bg-slate-50 border-none rounded-2xl p-4 text-sm font-bold focus:ring-2 focus:ring-blue-500 cursor-pointer" value={options.emojiDensity} onChange={e => setOptions({...options, emojiDensity: e.target.value as any})}>
-                    <option value="none">無 (純文字)</option>
-                    <option value="low">少量 (點綴)</option>
-                    <option value="medium">中等 (推薦)</option>
-                    <option value="high">多 (活潑)</option>
-                  </select>
-                </div>
-                <div className="space-y-3">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1"><MessageCircle size={14}/> 互動要求 (CTA)</label>
-                  <select className="w-full bg-slate-50 border-none rounded-2xl p-4 text-sm font-bold text-blue-600 focus:ring-2 focus:ring-blue-500 cursor-pointer" value={options.callToAction} onChange={e => setOptions({...options, callToAction: e.target.value as any})}>
-                    <option value="none">不要 (直接結尾)</option>
-                    <option value="shareExperience">邀請分享類似經驗</option>
-                    <option value="question">引導回答選擇問題</option>
-                    <option value="linkClick">引導點擊詳情連結</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-3">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">語氣風格</label>
-                  <select className="w-full bg-slate-50 border-none rounded-2xl p-4 text-sm font-bold focus:ring-2 focus:ring-blue-500 cursor-pointer" value={options.style} onChange={e => setOptions({...options, style: e.target.value as any})}>
-                    <option value="warm">溫暖親切</option>
-                    <option value="professional">專業權威</option>
-                    <option value="humorous">幽默風趣</option>
-                    <option value="storytelling">敘事風格</option>
-                  </select>
-                </div>
-                <div className="space-y-3">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">篇幅模式</label>
-                  <select className="w-full bg-slate-50 border-none rounded-2xl p-4 text-sm font-bold text-blue-600 focus:ring-2 focus:ring-blue-500 cursor-pointer" value={options.length} onChange={e => setOptions({...options, length: e.target.value as any})}>
-                    <option value="short">短篇精華</option>
-                    <option value="medium">標準深度</option>
-                    <option value="story">✨ 故事長文框架</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* 生成按鈕 - 觸發自動複製 */}
-              <button 
-                onClick={handleGenerateAndCopy}
-                className="w-full py-6 bg-slate-900 text-white rounded-[2rem] font-black text-xl hover:bg-black transition-all shadow-2xl active:scale-95 flex items-center justify-center gap-3"
-              >
-                {copied ? <Check className="text-emerald-400 animate-bounce" /> : <RefreshCcw />}
-                {copied ? '已自動複製！' : '生成並複製指令'}
-              </button>
-            </div>
+        {/* 鬧鈴狀態控制區 */}
+        {isAlarming && (
+          <div className="mb-8 animate-pulse">
+            <button 
+              onClick={stopAlarm}
+              className="w-full bg-red-500 hover:bg-red-600 text-white font-black py-5 rounded-full text-xl shadow-lg shadow-red-200 active:scale-95 transition-all"
+            >
+              哨聲停止！準備戰鬥！
+            </button>
           </div>
+        )}
 
-          {/* 右側：輸出區域 */}
-          <div className="lg:col-span-7 flex flex-col h-full min-h-[600px]">
-            <div className="bg-slate-900 rounded-[3.5rem] p-8 shadow-2xl flex flex-col h-full relative border-[12px] border-slate-800">
-              <div className="flex justify-between items-center mb-8">
-                <div className="flex gap-2">
-                  <div className="w-3 h-3 rounded-full bg-red-400"></div>
-                  <div className="w-3 h-3 rounded-full bg-amber-400"></div>
-                  <div className="w-3 h-3 rounded-full bg-emerald-400"></div>
-                  <span className="ml-3 text-[10px] font-mono text-slate-500 tracking-widest uppercase text-sm">auto_copied.md</span>
-                </div>
-                {generatedPrompt && (
-                  <button 
-                    onClick={handleManualCopy} 
-                    className={`flex items-center gap-2 px-6 py-2.5 rounded-full text-xs font-black transition-all ${
-                      copied ? 'bg-emerald-500 text-white shadow-lg' : 'bg-white/10 text-slate-300 hover:bg-white/20'
-                    }`}
-                  >
-                    {copied ? <Check size={16} /> : <Clipboard size={16} />}
-                    {copied ? 'COPIED!' : 'MANUAL COPY'}
-                  </button>
-                )}
-              </div>
-              <div className="flex-1 overflow-y-auto custom-scrollbar">
-                {generatedPrompt ? (
-                  <div className="text-slate-300 font-mono text-sm leading-loose whitespace-pre-wrap animate-in fade-in slide-in-from-bottom-4 duration-300">
-                    {generatedPrompt}
-                  </div>
-                ) : (
-                  <div className="h-full flex flex-col items-center justify-center text-slate-600 italic space-y-6 opacity-40">
-                    <Layout size={64} strokeWidth={1} />
-                    <p className="text-center font-medium italic">設定完成後點擊按鈕<br/>系統將自動複製指令</p>
-                  </div>
-                )}
-              </div>
-              <div className="mt-8 pt-6 border-t border-white/5 flex justify-between items-center opacity-30">
-                <p className="text-[10px] text-slate-600 font-mono tracking-tighter uppercase font-bold">Model: Gemini 1.5 Pro Enabled</p>
-                <span className="text-[10px] text-slate-600 font-mono italic uppercase">System Online</span>
-              </div>
-            </div>
+        {/* 輸入表單 */}
+        <form onSubmit={handleAddTimer} className="bg-white p-6 rounded-3xl border border-stone-100 shadow-xl shadow-stone-500/5 mb-8 space-y-4">
+          <h2 className="text-lg font-bold text-stone-800 mb-4 flex items-center gap-2">
+            <span className="text-green-600">✚</span> 新增蘑菇任務
+          </h2>
+          <div>
+            <label className="text-xs font-bold text-stone-500 ml-1">現在蘑菇還剩幾分鐘？</label>
+            <input 
+              type="number" step="any" required placeholder="例如：15"
+              className="w-full bg-stone-100 p-4 rounded-2xl text-stone-900 mt-1 focus:ring-2 focus:ring-green-400 outline-none transition placeholder:text-stone-400"
+              value={minutes} onChange={e => setMinutes(e.target.value)}
+            />
           </div>
+          <div>
+            <label className="text-xs font-bold text-stone-500 ml-1">在哪裡？(選填)</label>
+            <input 
+              type="text" placeholder="例如：車站前大蘑菇"
+              className="w-full bg-stone-100 p-4 rounded-2xl text-stone-900 mt-1 focus:ring-2 focus:ring-green-400 outline-none transition placeholder:text-stone-400"
+              value={location} onChange={e => setLocation(e.target.value)}
+            />
+          </div>
+          <button type="submit" className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-2xl transition-all active:scale-95 shadow-md shadow-green-200 text-lg">
+            開始可愛倒數
+          </button>
+        </form>
 
+        {/* 計時器列表 */}
+        <div className="space-y-4">
+          <h3 className="text-sm font-bold text-stone-400 tracking-wider ml-2">正在計時的蘑菇</h3>
+          {timers.length === 0 && (
+            <div className="text-center py-12 bg-white rounded-3xl border border-stone-100 text-stone-400 shadow-inner">
+              <div className="text-5xl mb-3">🍃</div>
+              目前沒有任務喔
+            </div>
+          )}
+          {timers.map(timer => (
+            <div 
+              key={timer.id} 
+              className={`p-5 rounded-3xl border transition-all ${
+                timer.isTriggered 
+                ? 'bg-stone-100 border-stone-200 opacity-60' 
+                : 'bg-white border-green-100 shadow-md shadow-green-500/5'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex-1 min-w-0 pr-4">
+                  <p className="text-stone-500 text-xs font-medium truncate bg-stone-100 inline-block px-2 py-0.5 rounded-md mb-1">{timer.location}</p>
+                  <p className={`text-3xl font-mono font-bold tracking-tighter ${timer.isTriggered ? 'text-stone-500' : 'text-green-600'}`}>
+                    {formatCountdown(timer.targetTime)}
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setTimers(prev => prev.filter(t => t.id !== timer.id))}
+                  className="w-10 h-10 rounded-full bg-stone-100 flex items-center justify-center text-stone-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+              {!timer.isTriggered && (
+                <div className="w-full bg-stone-100 h-1 rounded-full mt-4 overflow-hidden">
+                    <div className="bg-green-400 h-full animate-pulse" style={{width: '70%'}}></div>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       </div>
-      <style jsx global>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.05); border-radius: 10px; }
-      `}</style>
-    </div>
-  );
+    </main>
+  )
 }
