@@ -6,7 +6,6 @@ const withPWA = withPWAInit({
   cacheOnFrontEndNav: true,
   aggressiveFrontEndNavCaching: true,
   reloadOnOnline: true,
-  // 修正點：移除 swMinify 屬性，因為新版本已不再支援此手動設定（預設已開啟）
   disable: process.env.NODE_ENV === "development",
   workboxOptions: {
     skipWaiting: true,
@@ -16,7 +15,10 @@ const withPWA = withPWAInit({
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  // 確保這裡沒有其他的 experimental 或 webpack 衝突設定
+  // 加入以下設定，解決 Webpack 模式下 CSS 消失的問題
+  webpack: (config) => {
+    return config;
+  },
 };
 
 export default withPWA(nextConfig);

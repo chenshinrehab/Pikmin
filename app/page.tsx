@@ -67,7 +67,7 @@ export default function PromptGeneratorPage() {
           <div className="inline-flex items-center justify-center p-3 bg-blue-100 rounded-2xl mb-4 text-blue-600">
             <Sparkles size={32} />
           </div>
-          <h1 className="text-4xl font-black tracking-tight mb-3">陳醫師的社群 AI 中控台</h1>
+          <h1 className="text-4xl font-black tracking-tight mb-3">jimmy的社群編輯器</h1>
           <p className="text-slate-500 font-medium italic text-lg uppercase tracking-tight">One-Click Generate & Auto Copy</p>
         </header>
 
