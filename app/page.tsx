@@ -2,154 +2,177 @@
 
 import { useState, useEffect } from 'react'
 
-type AlarmRecord = {
+type Timer = {
   id: string;
   location: string;
-  targetTime: number; 
-  displayTime: string; 
+  startTime: number;  // 按下開始的時間點
+  targetTime: number; // 爆掉 + 4.5分後的目標時間點
+  isTriggered: boolean;
 }
 
 export default function PikminTimer() {
+  const [timers, setTimers] = useState<Timer[]>([])
   const [minutes, setMinutes] = useState('')
   const [seconds, setSeconds] = useState('')
   const [location, setLocation] = useState('')
-  const [history, setHistory] = useState<AlarmRecord[]>([])
+  const [currentTime, setCurrentTime] = useState(Date.now())
 
+  // 1. 初始化與即時時鐘
   useEffect(() => {
-    const saved = localStorage.getItem('pikmin-alarm-history')
-    if (saved) {
-      try { setHistory(JSON.parse(saved)) } catch (e) { console.error(e) }
-    }
+    const saved = localStorage.getItem('pikmin-active-timers')
+    if (saved) setTimers(JSON.parse(saved))
+
+    const interval = setInterval(() => {
+      setCurrentTime(Date.now())
+    }, 1000)
+
+    return () => clearInterval(interval)
   }, [])
 
+  // 2. 儲存計時器
   useEffect(() => {
-    localStorage.setItem('pikmin-alarm-history', JSON.stringify(history))
-  }, [history])
+    localStorage.setItem('pikmin-active-timers', JSON.stringify(timers))
+  }, [timers])
 
-  const handleSetAlarm = (e: React.FormEvent) => {
+  // 3. 核心功能：計算、跳轉並開啟網頁倒數
+  const handleStart = (e: React.FormEvent) => {
     e.preventDefault()
     const m = Number(minutes) || 0
     const s = Number(seconds) || 0
     if (m === 0 && s === 0) return
 
-    const now = new Date()
-    const totalOffsetSeconds = (m * 60) + s + (4.5 * 60)
-    const targetDate = new Date(now.getTime() + totalOffsetSeconds * 1000)
+    const nowMs = Date.now()
+    // 總偏移：(輸入分*60 + 輸入秒 + 4.5分*60) 轉換為毫秒
+    const offsetMs = (m * 60 + s + 4.5 * 60) * 1000
+    const targetMs = nowMs + offsetMs
 
+    // A. 建立網頁倒數紀錄
+    const newTimer: Timer = {
+      id: crypto.randomUUID(),
+      location: location || '某處的蘑菇',
+      startTime: nowMs,
+      targetTime: targetMs,
+      isTriggered: false
+    }
+    setTimers(prev => [newTimer, ...prev].sort((a, b) => a.targetTime - b.targetTime))
+
+    // B. 準備跳轉系統鬧鐘的時間資訊
+    const targetDate = new Date(targetMs)
     const hh = targetDate.getHours()
     const mm = targetDate.getMinutes()
-    const alarmTimeStr = `${hh.toString().padStart(2, '0')}:${mm.toString().padStart(2, '0')}`
     const label = location || '🍄 皮克敏蘑菇'
 
-    const newRecord: AlarmRecord = {
-      id: crypto.randomUUID(),
-      location: label,
-      targetTime: targetDate.getTime(),
-      displayTime: alarmTimeStr
+    // C. 執行跳轉
+    const userAgent = navigator.userAgent || navigator.vendor;
+    if (/iPhone|iPad|iPod/i.test(userAgent)) {
+      // iOS 捷徑方案
+      window.location.href = `shortcuts://run-shortcut?name=PikTimer&input=${hh}:${mm},${label}`;
+    } else {
+      // Android 修正版 Intent
+      const androidUrl = `intent://#Intent;action=android.intent.action.SET_ALARM;i.android.intent.extra.alarm.HOUR=${hh};i.android.intent.extra.alarm.MINUTES=${mm};s.android.intent.extra.alarm.MESSAGE=${encodeURIComponent(label)};i.android.intent.extra.alarm.SKIP_UI=false;end`;
+      window.location.href = androidUrl;
     }
-    setHistory(prev => [newRecord, ...prev].slice(0, 10))
 
     setMinutes(''); setSeconds(''); setLocation('');
-
-    // --- 跳轉系統鬧鐘邏輯 ---
-    const userAgent = navigator.userAgent || navigator.vendor;
-    const isIOS = /iPhone|iPad|iPod/i.test(userAgent);
-
-    if (isIOS) {
-      // iOS 方案 (捷徑)
-      window.location.href = `shortcuts://run-shortcut?name=PikTimer&input=${alarmTimeStr},${label}`;
-    } else {
-      // Android 方案 (優化版 Intent)
-      // 使用更通用的 Android 鬧鐘 Intent 格式
-      const androidUrl = `intent://#Intent;action=android.intent.action.SET_ALARM;i.android.intent.extra.alarm.HOUR=${hh};i.android.intent.extra.alarm.MINUTES=${mm};s.android.intent.extra.alarm.MESSAGE=${encodeURIComponent(label)};i.android.intent.extra.alarm.SKIP_UI=false;end`;
-      
-      // 嘗試直接跳轉
-      window.location.href = androidUrl;
-
-      // 如果 500ms 後沒反應，可能是被阻擋，嘗試備用方案
-      setTimeout(() => {
-        if (confirm(`計算完成：${alarmTimeStr}\n是否手動開啟鬧鐘？`)) {
-            // 備用方案：嘗試開啟時鐘 App
-            window.location.href = "intent://#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;component=com.android.deskclock/com.android.deskclock.DeskClock;end";
-        }
-      }, 500);
-    }
   }
 
-  const removeRecord = (id: string) => {
-    setHistory(prev => prev.filter(item => item.id !== id))
+  // 格式化倒數文字
+  const formatCountdown = (target: number) => {
+    const diff = target - currentTime
+    if (diff <= 0) return "時間到！"
+    const totalSec = Math.floor(diff / 1000)
+    const min = Math.floor(totalSec / 60)
+    const sec = totalSec % 60
+    return `${min}:${sec.toString().padStart(2, '0')}`
+  }
+
+  // 計算進度條比例
+  const getProgress = (timer: Timer) => {
+    const total = timer.targetTime - timer.startTime
+    const elapsed = currentTime - timer.startTime
+    const progress = (elapsed / total) * 100
+    return Math.min(Math.max(progress, 0), 100)
   }
 
   return (
-    <main className="min-h-screen p-4 md:p-8 bg-stone-50 font-sans">
+    <main className="min-h-screen p-4 md:p-8 bg-stone-50 font-sans text-stone-900">
       <div className="max-w-md mx-auto">
         <header className="text-center mb-8 pt-4 flex flex-col items-center">
           <div className="text-6xl mb-2 text-center">🍄</div>
-          <h1 className="text-3xl font-extrabold text-stone-900 tracking-tight">蘑菇鬧鐘助手</h1>
+          <h1 className="text-3xl font-extrabold tracking-tight text-center">蘑菇計時助手</h1>
           <p className="text-green-700 bg-green-100 px-3 py-1 rounded-full text-[10px] font-bold mt-2 tracking-widest uppercase text-center">自動計算 + 4 分 30 秒</p>
         </header>
 
-        <form onSubmit={handleSetAlarm} className="bg-white p-6 rounded-[32px] border border-stone-100 shadow-xl shadow-stone-500/5 mb-8 space-y-4">
-          <h2 className="text-lg font-bold text-stone-800 mb-2 flex items-center gap-2">
-            <span className="text-green-600 text-xl">✚</span> 設定新提醒
-          </h2>
-          
+        {/* 輸入區卡片 */}
+        <form onSubmit={handleStart} className="bg-white p-6 rounded-[32px] border border-stone-100 shadow-xl shadow-stone-500/5 mb-8 space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-[10px] font-black text-stone-400 ml-1 uppercase">分鐘</label>
               <input 
-                type="number" placeholder="0" required
-                className="w-full bg-stone-100 p-4 rounded-2xl text-stone-900 mt-1 focus:ring-2 focus:ring-green-400 outline-none transition text-xl font-bold"
+                type="number" placeholder="0" className="w-full bg-stone-100 p-4 rounded-2xl text-xl font-bold outline-none focus:ring-2 focus:ring-green-400"
                 value={minutes} onChange={e => setMinutes(e.target.value)}
               />
             </div>
             <div>
               <label className="text-[10px] font-black text-stone-400 ml-1 uppercase">秒數</label>
               <input 
-                type="number" placeholder="0"
-                className="w-full bg-stone-100 p-4 rounded-2xl text-stone-900 mt-1 focus:ring-2 focus:ring-green-400 outline-none transition text-xl font-bold"
+                type="number" placeholder="0" className="w-full bg-stone-100 p-4 rounded-2xl text-xl font-bold outline-none focus:ring-2 focus:ring-green-400"
                 value={seconds} onChange={e => setSeconds(e.target.value)}
               />
             </div>
           </div>
-
           <div>
-            <label className="text-[10px] font-black text-stone-400 ml-1 uppercase">地點標籤</label>
+            <label className="text-[10px] font-black text-stone-400 ml-1 uppercase">地點標籤 (鬧鐘名稱)</label>
             <input 
-              type="text" placeholder="例如：火車站前"
-              className="w-full bg-stone-100 p-4 rounded-2xl text-stone-900 mt-1 focus:ring-2 focus:ring-green-400 outline-none transition"
+              type="text" placeholder="例如：火車站前" className="w-full bg-stone-100 p-4 rounded-2xl outline-none focus:ring-2 focus:ring-green-400"
               value={location} onChange={e => setLocation(e.target.value)}
             />
           </div>
-
           <button type="submit" className="w-full bg-green-600 hover:bg-green-700 text-white font-black py-4 rounded-2xl transition-all active:scale-95 shadow-md shadow-green-200 text-lg">
-            計算並開啟系統鬧鐘
+            開始倒數並跳轉鬧鐘
           </button>
         </form>
 
+        {/* 正在計時清單 */}
         <div className="space-y-4">
-          <h3 className="text-xs font-black text-stone-300 tracking-[0.2em] ml-2 uppercase">最近紀錄</h3>
-          {history.length === 0 && (
-            <div className="text-center py-12 bg-white rounded-[32px] border border-stone-100 text-stone-400 shadow-inner italic text-sm">
-              尚未有設定紀錄
+          <h3 className="text-xs font-black text-stone-300 tracking-[0.2em] ml-2 uppercase text-center">進行中的倒數</h3>
+          {timers.length === 0 && (
+            <div className="text-center py-12 bg-white rounded-[32px] border border-stone-100 text-stone-400 shadow-inner">
+               <div className="text-5xl mb-3 opacity-30">🍃</div>
+               尚無任務
             </div>
           )}
-
-          {history.map(item => (
-            <div key={item.id} className="p-6 bg-white rounded-[32px] border border-green-50 shadow-md shadow-green-500/5 flex items-center justify-between">
-              <div className="flex-1 min-w-0 pr-4">
-                <p className="text-stone-400 text-[10px] font-black uppercase mb-1 truncate">{item.location}</p>
-                <p className="text-4xl font-mono font-bold tracking-tighter text-green-600">{item.displayTime}</p>
+          {timers.map(timer => (
+            <div key={timer.id} className="p-6 bg-white rounded-[32px] border border-green-50 shadow-md shadow-green-500/5 overflow-hidden">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex-1 min-w-0 pr-4">
+                  <p className="text-stone-400 text-[10px] font-black uppercase mb-1 truncate">{timer.location}</p>
+                  <p className="text-4xl font-mono font-bold tracking-tighter text-green-600">
+                    {formatCountdown(timer.targetTime)}
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setTimers(prev => prev.filter(t => t.id !== timer.id))}
+                  className="w-10 h-10 rounded-full bg-stone-50 flex items-center justify-center text-stone-300 hover:text-red-500"
+                >
+                  ✕
+                </button>
               </div>
-              <button 
-                onClick={() => removeRecord(item.id)}
-                className="w-10 h-10 rounded-full bg-stone-50 flex items-center justify-center text-stone-300 hover:text-red-500"
-              >
-                ✕
-              </button>
+              {/* 進度條 */}
+              <div className="w-full bg-stone-100 h-2 rounded-full overflow-hidden">
+                <div 
+                  className="bg-green-500 h-full transition-all duration-1000 ease-linear"
+                  style={{ width: `${getProgress(timer)}%` }}
+                />
+              </div>
             </div>
           ))}
         </div>
+
+        <p className="mt-10 text-[10px] text-stone-400 text-center leading-relaxed">
+          Android 若無反應：請改用 Chrome 開啟，並點擊「允許開啟外部應用程式」。<br/>
+          iOS 若無反應：需配合名為 PikTimer 的捷徑。
+        </p>
       </div>
     </main>
   )
