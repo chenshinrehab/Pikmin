@@ -51,14 +51,19 @@ export default function PikminTimer() {
     localStorage.setItem('pikmin-timers', JSON.stringify(timers))
   }, [timers])
 
-  // 3. 核心時鐘：每秒檢查時間與更新介面
+  // 3. 核心時鐘：使用 Web Worker 驅動，增加背景穩定度並自動移除已結束的鬧鐘
   useEffect(() => {
-    const interval = setInterval(() => {
+    // 建立 Worker 避免鎖屏時 JS 被凍結
+    const worker = new Worker('/timer-worker.js');
+
+    worker.onmessage = () => {
       const now = Date.now()
       setCurrentTime(now)
 
       setTimers(prevTimers => {
         let hasChanges = false
+        
+        // A. 檢查是否觸發鬧鈴
         const updated = prevTimers.map(timer => {
           if (!timer.isTriggered && now >= timer.targetTime) {
             hasChanges = true
@@ -67,11 +72,21 @@ export default function PikminTimer() {
           }
           return timer
         })
-        return hasChanges ? updated : prevTimers
-      })
-    }, 1000)
 
-    return () => clearInterval(interval)
+        // B. 自動移除機制：移除已經觸發超過 10 秒的計時器
+        const filtered = updated.filter(timer => {
+          if (timer.isTriggered && now > timer.targetTime + 10000) {
+            hasChanges = true
+            return false
+          }
+          return true
+        })
+
+        return hasChanges ? filtered : prevTimers
+      })
+    }
+
+    return () => worker.terminate()
   }, [])
 
   // 4. 觸發鬧鈴邏輯 (音樂 + 震動 + 通知)
@@ -89,7 +104,7 @@ export default function PikminTimer() {
       registration.showNotification('🍄 準備打蘑菇囉！', {
         body: `${timer.location ? `地點：${timer.location}\n` : ''}新蘑菇即將生成，點擊開啟遊戲！`,
         icon: '/icon.png',
-        // @ts-ignore: vibrate property might not be in the default TS NotificationOptions
+        // @ts-ignore
         vibrate: [500, 200, 500, 200, 500],
         tag: timer.id,
         requireInteraction: true 
@@ -125,7 +140,6 @@ export default function PikminTimer() {
     setMinutes('')
     setLocation('')
     
-    // 解鎖音效權限
     if (audioRef.current) {
       const promise = audioRef.current.play();
       promise.then(() => audioRef.current?.pause()).catch(() => {});

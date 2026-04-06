@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: "皮克敏蘑菇倒數計時工具",
   // 這段是讓 iOS 存到桌面時使用的圖示
   icons: {
-    apple: '/icon.png', // 指向你放在 public 資料夾裡的圖示
+    apple: '/apple-icon.png', // 指向你放在 public 資料夾裡的圖示
   },
   // 這段可以讓網頁存成桌面捷徑時，隱藏瀏覽器的上下網址列，看起來更像 App
   appleWebApp: {
