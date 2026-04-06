@@ -1,4 +1,1 @@
-// public/timer-worker.js
-setInterval(() => {
-  postMessage('tick');
-}, 1000);
+setInterval(() => { self.postMessage('tick'); }, 1000);

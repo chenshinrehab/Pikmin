@@ -1,245 +1,175 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 
-type Timer = {
+type AlarmRecord = {
   id: string;
   location: string;
-  targetTime: number; // Unix Timestamp (ms)
-  isTriggered: boolean;
+  targetTime: number; 
+  displayTime: string; // 格式化後的時間 (HH:mm)
 }
 
 export default function PikminTimer() {
-  const [timers, setTimers] = useState<Timer[]>([])
   const [minutes, setMinutes] = useState('')
+  const [seconds, setSeconds] = useState('')
   const [location, setLocation] = useState('')
-  const [currentTime, setCurrentTime] = useState(Date.now())
-  const [isAlarming, setIsAlarming] = useState(false)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const [history, setHistory] = useState<AlarmRecord[]>([])
 
-  // 1. 初始化：註冊 SW、請求權限、載入快取、建立音效實例
+  // 1. 初始化：載入歷史紀錄
   useEffect(() => {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(err => console.error('SW register failed:', err));
-    }
-
-    const saved = localStorage.getItem('pikmin-timers')
+    const saved = localStorage.getItem('pikmin-alarm-history')
     if (saved) {
       try {
-        setTimers(JSON.parse(saved))
+        setHistory(JSON.parse(saved))
       } catch (e) {
-        console.error("Failed to parse saved timers", e)
+        console.error("載入紀錄失敗", e)
       }
     }
-
-    if ('Notification' in window && Notification.permission !== 'granted') {
-      Notification.requestPermission()
-    }
-
-    const audio = new Audio('/alert.mp3')
-    audio.loop = true
-    audioRef.current = audio
-
-    return () => {
-      audio.pause()
-      audioRef.current = null
-    }
   }, [])
 
-  // 2. 持久化儲存計時器
+  // 2. 儲存紀錄
   useEffect(() => {
-    localStorage.setItem('pikmin-timers', JSON.stringify(timers))
-  }, [timers])
+    localStorage.setItem('pikmin-alarm-history', JSON.stringify(history))
+  }, [history])
 
-  // 3. 核心時鐘：使用 Web Worker 驅動，增加背景穩定度並自動移除已結束的鬧鐘
-  useEffect(() => {
-    // 建立 Worker 避免鎖屏時 JS 被凍結
-    const worker = new Worker('/timer-worker.js');
-
-    worker.onmessage = () => {
-      const now = Date.now()
-      setCurrentTime(now)
-
-      setTimers(prevTimers => {
-        let hasChanges = false
-        
-        // A. 檢查是否觸發鬧鈴
-        const updated = prevTimers.map(timer => {
-          if (!timer.isTriggered && now >= timer.targetTime) {
-            hasChanges = true
-            triggerAlarm(timer)
-            return { ...timer, isTriggered: true }
-          }
-          return timer
-        })
-
-        // B. 自動移除機制：移除已經觸發超過 10 秒的計時器
-        const filtered = updated.filter(timer => {
-          if (timer.isTriggered && now > timer.targetTime + 10000) {
-            hasChanges = true
-            return false
-          }
-          return true
-        })
-
-        return hasChanges ? filtered : prevTimers
-      })
-    }
-
-    return () => worker.terminate()
-  }, [])
-
-  // 4. 觸發鬧鈴邏輯 (音樂 + 震動 + 通知)
-  const triggerAlarm = async (timer: Timer) => {
-    setIsAlarming(true)
-    
-    if (audioRef.current) {
-      audioRef.current.play().catch(e => {
-        console.warn("自動播放被瀏覽器阻擋", e)
-      })
-    }
-
-    if ('serviceWorker' in navigator) {
-      const registration = await navigator.serviceWorker.ready
-      registration.showNotification('🍄 準備打蘑菇囉！', {
-        body: `${timer.location ? `地點：${timer.location}\n` : ''}新蘑菇即將生成，點擊開啟遊戲！`,
-        icon: '/icon.png',
-        // @ts-ignore
-        vibrate: [500, 200, 500, 200, 500],
-        tag: timer.id,
-        requireInteraction: true 
-      })
-    }
-  }
-
-  // 5. 停止鬧鈴
-  const stopAlarm = () => {
-    if (audioRef.current) {
-      audioRef.current.pause()
-      audioRef.current.currentTime = 0
-    }
-    setIsAlarming(false)
-  }
-
-  // 6. 新增計時器邏輯
-  const handleAddTimer = (e: React.FormEvent) => {
+  // 3. 核心邏輯：計算時間並跳轉系統鬧鐘
+  const handleSetAlarm = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!minutes || isNaN(Number(minutes))) return
+    const m = Number(minutes) || 0
+    const s = Number(seconds) || 0
+    if (m === 0 && s === 0) return
 
-    const extraTimeMs = 4.5 * 60 * 1000
-    const targetTime = Date.now() + (Number(minutes) * 60 * 1000) + extraTimeMs
+    // 計算目標時間：現在 + 輸入時間 + 4.5 分鐘 (270秒)
+    const now = new Date()
+    const totalOffsetSeconds = (m * 60) + s + (4.5 * 60)
+    const targetDate = new Date(now.getTime() + totalOffsetSeconds * 1000)
 
-    const newTimer: Timer = {
+    // 格式化為 HH:mm
+    const hh = targetDate.getHours().toString().padStart(2, '0')
+    const mm = targetDate.getMinutes().toString().padStart(2, '0')
+    const alarmTimeStr = `${hh}:${mm}`
+    const label = location || '🍄 皮克敏蘑菇'
+
+    // 新增紀錄
+    const newRecord: AlarmRecord = {
       id: crypto.randomUUID(),
-      location: location || '某處的蘑菇',
-      targetTime,
-      isTriggered: false
+      location: label,
+      targetTime: targetDate.getTime(),
+      displayTime: alarmTimeStr
     }
+    setHistory(prev => [newRecord, ...prev].slice(0, 10)) // 保留最近10筆
 
-    setTimers(prev => [...prev, newTimer].sort((a, b) => a.targetTime - b.targetTime))
+    // 清空輸入
     setMinutes('')
+    setSeconds('')
     setLocation('')
-    
-    if (audioRef.current) {
-      const promise = audioRef.current.play();
-      promise.then(() => audioRef.current?.pause()).catch(() => {});
+
+    // --- 跳轉系統鬧鐘 ---
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent)
+
+    if (isIOS) {
+      // iOS: 請確保已建立名為 「PikTimer」 的捷徑
+      // 捷徑應接受文字輸入：時間,地點
+      const shortcutUrl = `shortcuts://run-shortcut?name=PikTimer&input=${alarmTimeStr},${label}`
+      window.location.href = shortcutUrl
+    } else {
+      // Android: 使用 Intent 喚起鬧鐘設定
+      const androidIntent = `intent://com.android.deskclock/#Intent;action=android.intent.action.SET_ALARM;i.android.intent.extra.alarm.HOUR=${hh};i.android.intent.extra.alarm.MINUTES=${mm};s.android.intent.extra.alarm.MESSAGE=${label};i.android.intent.extra.alarm.SKIP_UI=false;end`
+      window.location.href = androidIntent
     }
   }
 
-  // 格式化倒數計時字串
-  const formatCountdown = (target: number) => {
-    const diff = target - currentTime
-    if (diff <= 0) return "TIME UP!"
-    
-    const totalSeconds = Math.floor(diff / 1000)
-    const m = Math.floor(totalSeconds / 60)
-    const s = totalSeconds % 60
-    return `${m}:${s.toString().padStart(2, '0')}`
+  const removeRecord = (id: string) => {
+    setHistory(prev => prev.filter(item => item.id !== id))
   }
 
   return (
-    <main className={`min-h-screen p-4 md:p-8 transition-colors duration-500 ${isAlarming ? 'bg-red-50' : 'bg-stone-50'}`}>
+    <main className="min-h-screen p-4 md:p-8 bg-stone-50 font-sans">
       <div className="max-w-md mx-auto">
+        
         <header className="text-center mb-8 pt-4 flex flex-col items-center">
           <div className="text-6xl mb-2">🍄</div>
-          <h1 className="text-3xl font-extrabold text-stone-900 tracking-tight">蘑菇計時器</h1>
-          <p className="text-green-700 bg-green-100 px-3 py-1 rounded-full text-xs font-bold mt-2">爆掉倒數 + 4分30秒提醒</p>
+          <h1 className="text-3xl font-extrabold text-stone-900 tracking-tight">蘑菇鬧鐘助手</h1>
+          <p className="text-green-700 bg-green-100 px-3 py-1 rounded-full text-[10px] font-bold mt-2 tracking-widest uppercase">自動計算 + 4 分 30 秒</p>
         </header>
 
-        {isAlarming && (
-          <div className="mb-8 animate-pulse">
-            <button 
-              onClick={stopAlarm}
-              className="w-full bg-red-500 hover:bg-red-600 text-white font-black py-5 rounded-full text-xl shadow-lg shadow-red-200 active:scale-95 transition-all"
-            >
-              哨聲停止！準備戰鬥！
-            </button>
-          </div>
-        )}
-
-        <form onSubmit={handleAddTimer} className="bg-white p-6 rounded-3xl border border-stone-100 shadow-xl shadow-stone-500/5 mb-8 space-y-4">
-          <h2 className="text-lg font-bold text-stone-800 mb-4 flex items-center gap-2">
-            <span className="text-green-600">✚</span> 新增蘑菇任務
+        {/* 輸入表單卡片 */}
+        <form onSubmit={handleSetAlarm} className="bg-white p-6 rounded-[32px] border border-stone-100 shadow-xl shadow-stone-500/5 mb-8 space-y-4">
+          <h2 className="text-lg font-bold text-stone-800 mb-2 flex items-center gap-2">
+            <span className="text-green-600 text-xl">✚</span> 設定新提醒
           </h2>
-          <div>
-            <label className="text-xs font-bold text-stone-500 ml-1">現在蘑菇還剩幾分鐘？</label>
-            <input 
-              type="number" step="any" required placeholder="例如：15"
-              className="w-full bg-stone-100 p-4 rounded-2xl text-stone-900 mt-1 focus:ring-2 focus:ring-green-400 outline-none transition placeholder:text-stone-400"
-              value={minutes} onChange={e => setMinutes(e.target.value)}
-            />
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-[10px] font-black text-stone-400 ml-1 uppercase">分鐘</label>
+              <input 
+                type="number" placeholder="0" required
+                className="w-full bg-stone-100 p-4 rounded-2xl text-stone-900 mt-1 focus:ring-2 focus:ring-green-400 outline-none transition text-xl font-bold"
+                value={minutes} onChange={e => setMinutes(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-black text-stone-400 ml-1 uppercase">秒數</label>
+              <input 
+                type="number" placeholder="0"
+                className="w-full bg-stone-100 p-4 rounded-2xl text-stone-900 mt-1 focus:ring-2 focus:ring-green-400 outline-none transition text-xl font-bold"
+                value={seconds} onChange={e => setSeconds(e.target.value)}
+              />
+            </div>
           </div>
+
           <div>
-            <label className="text-xs font-bold text-stone-500 ml-1">在哪裡？(選填)</label>
+            <label className="text-[10px] font-black text-stone-400 ml-1 uppercase">地點或標籤</label>
             <input 
-              type="text" placeholder="例如：車站前大蘑菇"
-              className="w-full bg-stone-100 p-4 rounded-2xl text-stone-900 mt-1 focus:ring-2 focus:ring-green-400 outline-none transition placeholder:text-stone-400"
+              type="text" placeholder="例如：火車站前"
+              className="w-full bg-stone-100 p-4 rounded-2xl text-stone-900 mt-1 focus:ring-2 focus:ring-green-400 outline-none transition"
               value={location} onChange={e => setLocation(e.target.value)}
             />
           </div>
-          <button type="submit" className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-2xl transition-all active:scale-95 shadow-md shadow-green-200 text-lg">
-            開始可愛倒數
+
+          <button type="submit" className="w-full bg-green-600 hover:bg-green-700 text-white font-black py-4 rounded-2xl transition-all active:scale-95 shadow-md shadow-green-200 text-lg">
+            計算並跳轉鬧鐘
           </button>
         </form>
 
+        {/* 歷史紀錄清單 */}
         <div className="space-y-4">
-          <h3 className="text-sm font-bold text-stone-400 tracking-wider ml-2">正在計時的蘑菇</h3>
-          {timers.length === 0 && (
-            <div className="text-center py-12 bg-white rounded-3xl border border-stone-100 text-stone-400 shadow-inner">
-              <div className="text-5xl mb-3">🍃</div>
-              目前沒有任務喔
+          <h3 className="text-xs font-black text-stone-300 tracking-[0.2em] ml-2 uppercase">最近設定的紀錄</h3>
+          
+          {history.length === 0 && (
+            <div className="text-center py-12 bg-white rounded-[32px] border border-stone-100 text-stone-400 shadow-inner">
+              <div className="text-5xl mb-3 opacity-30">🍃</div>
+              目前沒有紀錄喔
             </div>
           )}
-          {timers.map(timer => (
+
+          {history.map(item => (
             <div 
-              key={timer.id} 
-              className={`p-5 rounded-3xl border transition-all ${
-                timer.isTriggered 
-                ? 'bg-stone-100 border-stone-200 opacity-60' 
-                : 'bg-white border-green-100 shadow-md shadow-green-500/5'
-              }`}
+              key={item.id} 
+              className="p-6 bg-white rounded-[32px] border border-green-50 shadow-md shadow-green-500/5 flex items-center justify-between group"
             >
-              <div className="flex items-center justify-between">
-                <div className="flex-1 min-w-0 pr-4">
-                  <p className="text-stone-500 text-xs font-medium truncate bg-stone-100 inline-block px-2 py-0.5 rounded-md mb-1">{timer.location}</p>
-                  <p className={`text-3xl font-mono font-bold tracking-tighter ${timer.isTriggered ? 'text-stone-500' : 'text-green-600'}`}>
-                    {formatCountdown(timer.targetTime)}
-                  </p>
-                </div>
-                <button 
-                  onClick={() => setTimers(prev => prev.filter(t => t.id !== timer.id))}
-                  className="w-10 h-10 rounded-full bg-stone-100 flex items-center justify-center text-stone-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-                >
-                  ✕
-                </button>
+              <div className="flex-1 min-w-0 pr-4">
+                <p className="text-stone-400 text-[10px] font-black uppercase mb-1 truncate">{item.location}</p>
+                <p className="text-4xl font-mono font-bold tracking-tighter text-green-600">
+                  {item.displayTime}
+                </p>
               </div>
-              {!timer.isTriggered && (
-                <div className="w-full bg-stone-100 h-1 rounded-full mt-4 overflow-hidden">
-                    <div className="bg-green-400 h-full animate-pulse" style={{width: '70%'}}></div>
-                </div>
-              )}
+              <button 
+                onClick={() => removeRecord(item.id)}
+                className="w-10 h-10 rounded-full bg-stone-50 flex items-center justify-center text-stone-300 hover:text-red-500 transition-colors"
+              >
+                ✕
+              </button>
             </div>
           ))}
+        </div>
+
+        <div className="mt-10 p-4 bg-white/50 rounded-2xl border border-stone-100">
+          <p className="text-[10px] text-stone-400 leading-relaxed text-center">
+            💡 <strong className="text-stone-500">提示：</strong><br/>
+            iOS：請建立名為 <code className="bg-stone-200 px-1 rounded">PikTimer</code> 的捷徑。<br/>
+            Android：點擊按鈕後會直接彈出鬧鐘編輯視窗。
+          </p>
         </div>
       </div>
     </main>
